@@ -366,6 +366,11 @@ fn test_delete_report_rejected_without_auth() {
 fn test_delete_report_accepted_with_admin_auth() {
     let env = Env::default();
     let (client, admin) = register_and_init(&env);
+    let reporter = Address::generate(&env);
+    client
+        .submit_report(&reporter, &1u32, &report_data(&env), &report_hash(&env))
+        .unwrap();
+    let _ = env.auths();
 
     client.delete_report(&admin, &1u32).unwrap();
 
