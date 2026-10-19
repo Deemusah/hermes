@@ -15,7 +15,7 @@ use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
     Address, Env,
 };
-use validators::{ValidatorsContract, ValidatorsContractClient};
+use validators::{ValidatorError, ValidatorsContract, ValidatorsContractClient};
 
 // ---------------------------------------------------------------------------
 // Test harness
@@ -236,6 +236,33 @@ fn test_update_stake_requires_auth_success() {
             assert!(!s.to_lowercase().contains("auth"), "update_stake auth must pass; got: {s}");
         }
     }
+}
+
+#[test]
+fn test_update_stake_enforces_inclusive_min_and_max_bounds() {
+    let env = Env::default();
+    let ts = setup_with_validator(&env);
+
+    assert_eq!(
+        ts.client.try_update_stake(&ts.validator, &MIN_STAKE),
+        Ok(Ok(())),
+        "stake exactly at min_stake should succeed"
+    );
+    assert_eq!(
+        ts.client.try_update_stake(&ts.validator, &(MIN_STAKE - 1)),
+        Ok(Err(ValidatorError::StakeTooLow)),
+        "stake below min_stake should fail"
+    );
+    assert_eq!(
+        ts.client.try_update_stake(&ts.validator, &MAX_STAKE),
+        Ok(Ok(())),
+        "stake exactly at max_stake should succeed"
+    );
+    assert_eq!(
+        ts.client.try_update_stake(&ts.validator, &(MAX_STAKE + 1)),
+        Ok(Err(ValidatorError::StakeTooHigh)),
+        "stake above max_stake should fail"
+    );
 }
 
 // ===========================================================================

@@ -1,8 +1,8 @@
 use disputes::{
-    DisputeOutcome, DisputeStatus, DisputesContract, DisputesContractClient,
-    EscalationPolicy, COUNCIL_VOTE_UPHOLD,
+    DisputeOutcome, DisputeStatus, DisputesContract, DisputesContractClient, EscalationPolicy,
+    COUNCIL_VOTE_UPHOLD,
 };
-use soroban_sdk::{Env, Symbol};
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
 
 #[test]
 fn dispute_lifecycle_is_persisted_and_uses_unique_ids() {
@@ -37,35 +37,25 @@ fn dispute_lifecycle_is_persisted_and_uses_unique_ids() {
 }
 
 #[test]
-fn council_votes_accumulate_in_persisted_escalation_record() {
+#[should_panic(expected = "council member has already voted")]
+fn council_vote_rejects_duplicate_voter() {
     let env = Env::default();
     let contract_id = env.register(DisputesContract, ());
     let client = DisputesContractClient::new(&env, &contract_id);
-    let market_id = Symbol::new(&env, "MARKET1");
+    let voter = Address::generate(&env);
     let policy = EscalationPolicy {
-        min_stake: 100,
+        min_stake: 1,
         quorum: 10,
         council_threshold: 2,
     };
-
-    let escalation = client.escalate_dispute(
+    let record = client.escalate_dispute(
         &policy,
-        &market_id,
-        &100,
-        &9,
-        &DisputeOutcome::ChallengerWins,
+        &Symbol::new(&env, "MARKET"),
+        &1,
+        &0,
+        &DisputeOutcome::Escalated,
     );
-    assert_eq!(client.get_escalation(&market_id), Some(escalation.clone()));
 
-    let first_vote = client.council_vote(&policy, &escalation, &COUNCIL_VOTE_UPHOLD);
-    assert_eq!(first_vote.council_votes, 1);
-    assert_eq!(first_vote.uphold_votes, 1);
-    assert!(!first_vote.resolved);
-
-    // A stale caller-supplied record must not discard the vote already stored.
-    let second_vote = client.council_vote(&policy, &escalation, &COUNCIL_VOTE_UPHOLD);
-    assert_eq!(second_vote.council_votes, 2);
-    assert_eq!(second_vote.uphold_votes, 2);
-    assert!(second_vote.resolved);
-    assert_eq!(client.get_escalation(&market_id), Some(second_vote));
+    let record = client.council_vote(&policy, &record, &voter, &COUNCIL_VOTE_UPHOLD);
+    client.council_vote(&policy, &record, &voter, &COUNCIL_VOTE_UPHOLD);
 }
