@@ -167,6 +167,7 @@ public struct EscalationRecord {
 enum DataKey {
     DisputeCounter,
     Dispute(u32),
+    Escalation(Symbol),
 }
 
 fn load_dispute(env: &Env, id: u32) -> Dispute {
@@ -213,17 +214,17 @@ impl DisputesContract {
     }
 
     pub fn escalate_dispute(
-        _env: Env,
+        env: Env,
         policy: EscalationPolicy,
         market_id: Symbol,
         stake: u32,
         turnout: u32,
         community_outcome: DisputeOutcome,
     ) -> EscalationRecord {
-        if !Self::is_escalation_eligible(_env.clone(), policy, stake, turnout) {
+        if !Self::is_escalation_eligible(env.clone(), policy, stake, turnout) {
             panic!("market not eligible for escalation");
         }
-        EscalationRecord {
+        let record = EscalationRecord {
             market_id,
             stake,
             turnout,
@@ -232,15 +233,24 @@ impl DisputesContract {
             uphold_votes: 0,
             overturn_votes: 0,
             resolved: false,
-        }
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escalation(record.market_id.clone()), &record);
+        record
     }
 
     pub fn council_vote(
-        _env: Env,
+        env: Env,
         policy: EscalationPolicy,
-        mut record: EscalationRecord,
+        record: EscalationRecord,
         vote: u32,
     ) -> EscalationRecord {
+        let mut record: EscalationRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Escalation(record.market_id.clone()))
+            .unwrap_or_else(|| panic!("escalation not found"));
         if record.resolved {
             panic!("escalation already resolved");
         }
@@ -260,7 +270,17 @@ impl DisputesContract {
         } else if record.overturn_votes >= policy.council_threshold {
             record.resolved = true;
         }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escalation(record.market_id.clone()), &record);
         record
+    }
+
+    /// Returns the persisted escalation record for a market, if one exists.
+    pub fn get_escalation(env: Env, market_id: Symbol) -> Option<EscalationRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Escalation(market_id))
     }
 
     pub fn council_outcome(_env: Env, record: EscalationRecord) -> DisputeOutcome {

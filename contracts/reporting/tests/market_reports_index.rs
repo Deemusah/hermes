@@ -214,6 +214,54 @@ fn test_get_report_not_found() {
     }
 }
 
+/// `delete_report` should return `ReportNotFound` for non-existent IDs.
+#[test]
+fn test_delete_report_not_found() {
+    let env = Env::default();
+    let (client, admin, _reporter) = register_and_init(&env);
+
+    let result = client.try_delete_report(&admin, &999);
+    match result {
+        Err(e) => {
+            let err = e.to_string();
+            assert!(err.contains("ReportNotFound") || err.contains("7"));
+        }
+        Ok(_) => panic!("Expected ReportNotFound error"),
+    }
+}
+
+/// Deleting a report should remove it from storage and its market index.
+#[test]
+fn test_delete_report_removes_report_and_market_index_entry() {
+    let env = Env::default();
+    let (client, admin, reporter) = register_and_init(&env);
+    let market_id = 42u32;
+    let report_id = client
+        .submit_report(
+            &reporter,
+            &market_id,
+            &String::from_str(&env, "Report to delete"),
+            &String::from_str(&env, "hash"),
+        )
+        .unwrap();
+    let remaining_report_id = client
+        .submit_report(
+            &reporter,
+            &market_id,
+            &String::from_str(&env, "Report to keep"),
+            &String::from_str(&env, "hash"),
+        )
+        .unwrap();
+
+    client.delete_report(&admin, &report_id).unwrap();
+
+    assert!(client.try_get_report(&report_id).is_err());
+    assert!(client.get_report(&remaining_report_id).is_ok());
+    let market_reports = client.get_reports_by_market(&market_id);
+    assert_eq!(market_reports.len(), 1);
+    assert_eq!(market_reports.get(0), Some(remaining_report_id));
+}
+
 // ---------------------------------------------------------------------------
 // Pause behavior
 // ---------------------------------------------------------------------------
