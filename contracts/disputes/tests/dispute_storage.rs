@@ -1,7 +1,8 @@
 use disputes::{
-    DisputeOutcome, DisputeStatus, DisputesContract, DisputesContractClient,
+    DisputeOutcome, DisputeStatus, DisputesContract, DisputesContractClient, EscalationPolicy,
+    COUNCIL_VOTE_UPHOLD,
 };
-use soroban_sdk::{Env, Symbol};
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
 
 #[test]
 fn dispute_lifecycle_is_persisted_and_uses_unique_ids() {
@@ -33,4 +34,28 @@ fn dispute_lifecycle_is_persisted_and_uses_unique_ids() {
     let withdrawn = client.withdraw_dispute(&second, &creator);
     assert_eq!(withdrawn.status, DisputeStatus::Withdrawn);
     assert_eq!(client.get_dispute(&second.id), Some(withdrawn));
+}
+
+#[test]
+#[should_panic(expected = "council member has already voted")]
+fn council_vote_rejects_duplicate_voter() {
+    let env = Env::default();
+    let contract_id = env.register(DisputesContract, ());
+    let client = DisputesContractClient::new(&env, &contract_id);
+    let voter = Address::generate(&env);
+    let policy = EscalationPolicy {
+        min_stake: 1,
+        quorum: 10,
+        council_threshold: 2,
+    };
+    let record = client.escalate_dispute(
+        &policy,
+        &Symbol::new(&env, "MARKET"),
+        &1,
+        &0,
+        &DisputeOutcome::Escalated,
+    );
+
+    let record = client.council_vote(&policy, &record, &voter, &COUNCIL_VOTE_UPHOLD);
+    client.council_vote(&policy, &record, &voter, &COUNCIL_VOTE_UPHOLD);
 }

@@ -72,6 +72,7 @@ pub struct EscalationRecord {
     pub stake: u32,
     pub turnout: u32,
     pub community_outcome: DisputeOutcome,
+    pub council_voters: soroban_sdk::Vec<soroban_sdk::Address>,
     pub council_votes: u32,
     pub uphold_votes: u32,
     pub overturn_votes: u32,
@@ -228,6 +229,7 @@ impl DisputesContract {
             stake,
             turnout,
             community_outcome,
+            council_voters: soroban_sdk::Vec::new(&_env),
             council_votes: 0,
             uphold_votes: 0,
             overturn_votes: 0,
@@ -239,10 +241,18 @@ impl DisputesContract {
         _env: Env,
         policy: EscalationPolicy,
         mut record: EscalationRecord,
+        voter: soroban_sdk::Address,
         vote: u32,
     ) -> EscalationRecord {
         if record.resolved {
             panic!("escalation already resolved");
+        }
+        if record
+            .council_voters
+            .iter()
+            .any(|member| member == voter.clone())
+        {
+            panic!("council member has already voted");
         }
         match vote {
             COUNCIL_VOTE_ABSTAIN => {}
@@ -254,6 +264,7 @@ impl DisputesContract {
             }
             _ => panic!("invalid council vote"),
         }
+        record.council_voters.push_back(voter);
         record.council_votes += 1;
         if record.uphold_votes >= policy.council_threshold {
             record.resolved = true;

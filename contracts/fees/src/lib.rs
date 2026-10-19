@@ -293,6 +293,7 @@ impl FeesContract {
     /// - `ContractError::Unauthorized` if caller is not the admin.
     /// - `ContractError::FeePercentageTooHigh` if platform_fee_percentage > 10_000.
     /// - `ContractError::InvalidInput` if any fee value is negative.
+    /// - `ContractError::NoPendingFeeCommit` if no commitment exists.
     pub fn update_fee_config(
         env: Env,
         admin: Address,
@@ -307,6 +308,10 @@ impl FeesContract {
 
         // Ensure fees are not paused for config updates (consistency)
         Self::assert_fees_not_paused(&env)?;
+
+        if Self::get_pending_fee_commit_internal(&env).is_none() {
+            return Err(ContractError::NoPendingFeeCommit);
+        }
 
         Self::queue_fee_config(&env, &admin, new_config, DEFAULT_TIMELOCK_SECONDS)
     }

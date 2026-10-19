@@ -247,13 +247,25 @@ fn test_record_bet_after_remove_succeeds() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_record_bet_exceeds_cap_returns_error() {
+fn test_record_bets_exactly_at_cap_then_rejects_next() {
     let (_env, setup) = setup();
     setup
         .client
-        .set_caps(&setup.admin, &CapType::Bets, &2u32);
-    setup.client.record_bet(&setup.user1);
-    setup.client.record_bet(&setup.user1);
+        .set_caps(&setup.admin, &CapType::Bets, &3u32);
+    let caps = setup.client.get_caps();
+
+    for expected_count in 1..=caps.max_bets {
+        assert_eq!(
+            setup.client.record_bet(&setup.user1),
+            expected_count,
+            "recording bet {expected_count} should succeed up to max_bets"
+        );
+    }
+    assert_eq!(
+        setup.client.get_account_state(&setup.user1).bets,
+        caps.max_bets
+    );
+
     let result = setup.client.try_record_bet(&setup.user1);
     assert_eq!(result, Ok(Err(MonitorError::BetCapExceeded)));
 }

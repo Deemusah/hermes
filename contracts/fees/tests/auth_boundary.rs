@@ -165,6 +165,9 @@ fn test_update_fee_config_succeeds_with_admin_auth() {
     let client = register_and_initialize(&env, &admin);
 
     let config = default_fee_config();
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x11u8; 32]);
+    client.commit_fee_config(&admin, &hash);
+    let _ = env.auths();
     client.update_fee_config(&admin, &config);
 
     let auths = env.auths();
@@ -218,7 +221,39 @@ fn test_update_fee_config_rejects_zero_minimum_when_fees_enabled() {
     assert!(matches!(result, Err(Ok(ContractError::InvalidInput))));
 
     config.fees_enabled = false;
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x22u8; 32]);
+    client.commit_fee_config(&admin, &hash);
     client.update_fee_config(&admin, &config);
+}
+
+#[test]
+fn test_update_fee_config_requires_commit_and_apply_timelock() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let client = register_and_initialize(&env, &admin);
+    let config = default_fee_config();
+
+    let no_commit = client.try_update_fee_config(&admin, &config);
+    assert!(matches!(
+        no_commit,
+        Err(Ok(ContractError::NoPendingFeeCommit))
+    ));
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x33u8; 32]);
+    client.commit_fee_config(&admin, &hash);
+    client.update_fee_config(&admin, &config);
+
+    let early_apply = client.try_apply_fee_update(&admin);
+    assert!(matches!(
+        early_apply,
+        Err(Ok(ContractError::FeeRevealTooEarly))
+    ));
+
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp += 86_401;
+    });
+    client.apply_fee_update(&admin);
+    assert_eq!(client.get_fee_config(), config);
 }
 
 // ============================================================
@@ -756,6 +791,8 @@ fn test_all_state_changing_entrypoints_succeed_with_proper_auth() {
 
     let config = default_fee_config();
 
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x44u8; 32]);
+    client.commit_fee_config(&admin, &hash);
     assert!(
         client.try_update_fee_config(&admin, &config).is_ok(),
         "Admin should invoke update_fee_config"
@@ -846,6 +883,8 @@ fn test_pending_fee_config_inspection_and_apply() {
     let new_cfg = default_fee_config();
     let original_cfg = client.get_fee_config();
     assert_ne!(new_cfg, original_cfg);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x55u8; 32]);
+    client.commit_fee_config(&admin, &hash);
     client.update_fee_config(&admin, &new_cfg);
     assert_eq!(client.get_fee_config(), original_cfg);
 
