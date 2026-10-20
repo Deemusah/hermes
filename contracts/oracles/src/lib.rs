@@ -243,12 +243,7 @@ impl OraclesContract {
             soroban_sdk::vec![&env, feed_id.into_val(&env)],
         );
         match price {
-            Some(p) => Ok(OraclePriceData {
-                price: p,
-                publish_time: env.ledger().timestamp(),
-                confidence: None,
-                exponent: 0,
-            }),
+            Some(_) => Err(Error::OracleStale),
             None => Err(Error::OracleUnavailable),
         }
     }

@@ -297,6 +297,36 @@ fn test_user_bet_enumeration_and_pagination() {
     assert!(claimed_b1.claimed);
 }
 
+#[test]
+fn test_user_bet_enumeration_reflects_market_cancellation() {
+    let te = setup_test_env();
+
+    let m1 = create_standard_market(&te, 2);
+    let m2 = create_standard_market(&te, 2);
+
+    te.client.place_bet(&te.bettor1, &m1, &0, &500);
+    te.client.place_bet(&te.bettor1, &m2, &1, &300);
+
+    // Before cancellation both bets show market_cancelled = false
+    let before = te.client.get_user_bets(&te.bettor1, &0, &10);
+    assert_eq!(before.len(), 2);
+    assert!(!before.get(0).unwrap().market_cancelled);
+    assert!(!before.get(1).unwrap().market_cancelled);
+
+    // Cancel m1
+    te.client.cancel_market(&te.creator, &m1);
+
+    // After cancellation the m1 entry must be flagged; m2 must remain unflagged
+    let after = te.client.get_user_bets(&te.bettor1, &0, &10);
+    assert_eq!(after.len(), 2);
+    let entry_m1 = after.get(0).unwrap();
+    let entry_m2 = after.get(1).unwrap();
+    assert_eq!(entry_m1.market_id, m1);
+    assert!(entry_m1.market_cancelled, "cancelled market must be flagged");
+    assert_eq!(entry_m2.market_id, m2);
+    assert!(!entry_m2.market_cancelled, "live market must not be flagged");
+}
+
 // ===========================================================================
 //  ISSUE #014: CONFIGURABLE PAYOUT CURVES TESTS
 // ===========================================================================

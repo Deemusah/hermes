@@ -53,6 +53,10 @@ pub type Error = ContractError;
 
 const DEFAULT_MAX_MARKET_COUNT: u32 = 10_000;
 
+/// TTL extension for payout curve entries (≈ 1 year at ~5s/ledger).
+/// Long-running markets must have their curve config outlive the claim window.
+const MARKET_PAYOUT_CURVE_TTL_LEDGERS: u32 = 6_307_200;
+
 /// Persistent-storage keys used by the Markets contract.
 #[contracttype]
 #[derive(Clone)]
@@ -204,6 +208,9 @@ pub struct UserBetInfo {
     pub amount: u128,
     /// Whether winnings for this bet have already been claimed.
     pub claimed: bool,
+    /// Whether the market this bet belongs to has been cancelled.
+    /// Callers should treat bets with this flag set as void — no payout will be issued.
+    pub market_cancelled: bool,
 }
 
 /// Configurable payout curve configuration for distributing market pool funds (#014).
@@ -547,6 +554,18 @@ impl MarketsContract {
             .persistent()
             .get(&DataKey::MarketPayoutCurve(market_id))
             .unwrap_or_else(|| PayoutCurveConfig::winner_takes_all(&env));
+        // Extend TTL on every read so the curve outlives long-running claim windows.
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::MarketPayoutCurve(market_id))
+        {
+            env.storage().persistent().extend_ttl(
+                &DataKey::MarketPayoutCurve(market_id),
+                MARKET_PAYOUT_CURVE_TTL_LEDGERS,
+                MARKET_PAYOUT_CURVE_TTL_LEDGERS,
+            );
+        }
         let total_pool: i128 = env
             .storage()
             .persistent()
@@ -883,6 +902,11 @@ impl MarketsContract {
         env.storage()
             .persistent()
             .set(&DataKey::MarketPayoutCurve(market_id), &curve);
+        env.storage().persistent().extend_ttl(
+            &DataKey::MarketPayoutCurve(market_id),
+            MARKET_PAYOUT_CURVE_TTL_LEDGERS,
+            MARKET_PAYOUT_CURVE_TTL_LEDGERS,
+        );
 
         market_id
     }
@@ -929,6 +953,11 @@ impl MarketsContract {
         env.storage()
             .persistent()
             .set(&DataKey::MarketPayoutCurve(market_id), &curve);
+        env.storage().persistent().extend_ttl(
+            &DataKey::MarketPayoutCurve(market_id),
+            MARKET_PAYOUT_CURVE_TTL_LEDGERS,
+            MARKET_PAYOUT_CURVE_TTL_LEDGERS,
+        );
     }
 
     /// Reads the configured payout curve for a market (#014).
@@ -1434,12 +1463,20 @@ impl MarketsContract {
                     .get(&DataKey::ClaimedBet(market_id, user.clone()))
                     .unwrap_or(false);
 
+                let market_cancelled: bool = env
+                    .storage()
+                    .persistent()
+                    .get::<_, MarketData>(&DataKey::Market(market_id))
+                    .map(|m| m.cancelled)
+                    .unwrap_or(false);
+
                 // bet.amount is validated > 0 in place_bet, so the cast to u128 is safe.
                 results.push_back(UserBetInfo {
                     market_id,
                     outcome_index: bet.outcome_index,
                     amount: bet.amount as u128,
                     claimed,
+                    market_cancelled,
                 });
             }
         }
