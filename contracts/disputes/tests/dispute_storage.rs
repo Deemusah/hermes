@@ -7,18 +7,22 @@ use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
 #[test]
 fn dispute_lifecycle_is_persisted_and_uses_unique_ids() {
     let env = Env::default();
+    // mock_all_auths is required because withdraw_dispute calls caller.require_auth().
+    env.mock_all_auths();
     let contract_id = env.register(DisputesContract, ());
     let client = DisputesContractClient::new(&env, &contract_id);
     let market_id = Symbol::new(&env, "MARKET1");
-    let creator = Symbol::new(&env, "CREATOR");
+    let creator = Address::generate(&env);
 
     let opened = client.open_dispute(&market_id, &creator);
     assert_eq!(opened.id, 1);
     assert_eq!(opened.status, DisputeStatus::Open);
     assert_eq!(client.get_dispute(&opened.id), Some(opened.clone()));
 
+    // start_voting reads from storage — a forged creator in the input struct is
+    // ignored because the contract always reloads the authoritative record.
     let mut stale_input = opened.clone();
-    stale_input.creator = Symbol::new(&env, "FORGED");
+    stale_input.creator = Address::generate(&env); // forged; must be ignored
     let voting = client.start_voting(&stale_input);
     assert_eq!(voting.creator, creator);
     assert_eq!(voting.status, DisputeStatus::Voting);
@@ -31,6 +35,7 @@ fn dispute_lifecycle_is_persisted_and_uses_unique_ids() {
 
     let second = client.open_dispute(&Symbol::new(&env, "MARKET2"), &creator);
     assert_eq!(second.id, 2);
+    // withdraw_dispute requires the caller to be the creator and to authenticate.
     let withdrawn = client.withdraw_dispute(&second, &creator);
     assert_eq!(withdrawn.status, DisputeStatus::Withdrawn);
     assert_eq!(client.get_dispute(&second.id), Some(withdrawn));

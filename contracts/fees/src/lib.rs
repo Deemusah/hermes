@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, Map, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, xdr::ToXdr, Address, BytesN, Env, Map, Symbol};
 
 mod errors;
 pub use errors::ContractError;
@@ -309,8 +309,14 @@ impl FeesContract {
         // Ensure fees are not paused for config updates (consistency)
         Self::assert_fees_not_paused(&env)?;
 
-        if Self::get_pending_fee_commit_internal(&env).is_none() {
-            return Err(ContractError::NoPendingFeeCommit);
+        let commit = Self::get_pending_fee_commit_internal(&env)
+            .ok_or(ContractError::NoPendingFeeCommit)?;
+
+        // Verify the revealed config matches the committed hash.
+        let config_bytes = new_config.to_xdr(&env);
+        let config_hash = env.crypto().sha256(&config_bytes);
+        if config_hash != commit.hash {
+            return Err(ContractError::CommitHashMismatch);
         }
 
         Self::queue_fee_config(&env, &admin, new_config, DEFAULT_TIMELOCK_SECONDS)
