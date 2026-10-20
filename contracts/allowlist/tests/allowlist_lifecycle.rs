@@ -435,3 +435,17 @@ fn test_get_nonexistent_allowlist() {
     let result = setup.client.try_get_allowlist(&ghost_id);
     assert_eq!(result, Ok(Err(AllowlistError::AllowlistNotFound)));
 }
+
+#[test]
+fn test_admin_persisted_in_persistent_storage() {
+    let (env, setup) = setup_test();
+
+    // Verify admin is stored and accessible
+    let stored_admin = setup.client.get_admin();
+    assert_eq!(stored_admin, setup.admin);
+
+    // Transfer ownership and verify new admin is maintained consistently
+    let new_admin = Address::generate(&env);
+    setup.client.transfer_ownership(&setup.admin, &new_admin);
+    assert_eq!(setup.client.get_admin(), new_admin);
+}
