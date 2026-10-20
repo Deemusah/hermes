@@ -2,7 +2,11 @@ use markets::{MarketsContract, MarketsContractClient};
 use resolution::{
     errors::ContractError, ResolutionContract, ResolutionContractClient, ResolutionStatus,
 };
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contractimpl,
+    testutils::{Address as _, Ledger as _},
+    Address, Env, Vec,
+};
 
 #[contract]
 struct MockOracle;
@@ -235,4 +239,77 @@ fn enforces_cooldown_per_resolver() {
             .try_resolve_market(&fixture.resolver, &second_market),
         Err(Ok(ContractError::ResolutionCooldownActive))
     );
+}
+
+#[test]
+fn allows_resolution_after_cooldown_expires() {
+    let fixture = Fixture::new();
+    fixture
+        .resolution()
+        .set_resolution_cooldown(&fixture.admin, &60);
+    let first_market = fixture.create_market();
+    fixture.set_oracle_result(first_market, Some(Vec::from_array(&fixture.env, [0])));
+    fixture
+        .resolution()
+        .resolve_market(&fixture.resolver, &first_market);
+
+    let second_market = fixture.create_market();
+    fixture.set_oracle_result(second_market, Some(Vec::from_array(&fixture.env, [1])));
+
+    // Advance ledger timestamp beyond cooldown (60 seconds)
+    fixture.env.ledger().set_timestamp(fixture.env.ledger().timestamp() + 61);
+
+    let status = fixture
+        .resolution()
+        .resolve_market(&fixture.resolver, &second_market);
+    assert_eq!(status.market_id, second_market);
+}
+
+#[test]
+fn rejects_resolving_already_resolved_market() {
+    let fixture = Fixture::new();
+    let market_id = fixture.create_market();
+    fixture.set_oracle_result(market_id, Some(Vec::from_array(&fixture.env, [0])));
+
+    fixture
+        .resolution()
+        .resolve_market(&fixture.resolver, &market_id);
+
+    // Second resolution attempt should fail
+    assert_eq!(
+        fixture
+            .resolution()
+            .try_resolve_market(&fixture.resolver, &market_id),
+        Err(Ok(ContractError::MarketAlreadyResolved))
+    );
+}
+
+#[test]
+fn rejects_double_initialization() {
+    let fixture = Fixture::new();
+    let another_admin = Address::generate(&fixture.env);
+
+    assert_eq!(
+        fixture.resolution().try_initialize(&another_admin),
+        Err(Ok(ContractError::InvalidState))
+    );
+}
+
+#[test]
+fn rejects_unauthorized_cooldown_update() {
+    let fixture = Fixture::new();
+    let unauthorized_user = Address::generate(&fixture.env);
+
+    assert_eq!(
+        fixture
+            .resolution()
+            .try_set_resolution_cooldown(&unauthorized_user, &100),
+        Err(Ok(ContractError::Unauthorized))
+    );
+}
+
+#[test]
+fn returns_correct_version() {
+    let fixture = Fixture::new();
+    assert_eq!(fixture.resolution().version(), 7);
 }
