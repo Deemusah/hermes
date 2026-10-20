@@ -549,6 +549,15 @@ impl MarketsContract {
             None => return (0, None),
         };
 
+        Self::calculate_payout_with_remainder_loaded(&env, market_id, &market, &bet)
+    }
+
+    fn calculate_payout_with_remainder_loaded(
+        env: &Env,
+        market_id: u32,
+        market: &MarketData,
+        bet: &BetData,
+    ) -> (i128, Option<(u32, i128)>) {
         let curve: PayoutCurveConfig = env
             .storage()
             .persistent()
@@ -751,12 +760,14 @@ impl MarketsContract {
     }
 
     /// @notice Read a market from persistent storage and bump its TTL.
-    pub fn get_market(env: Env, market_id: soroban_sdk::Symbol) -> Option<soroban_sdk::Val> {
-        let market: Option<soroban_sdk::Val> = env.storage().persistent().get(&market_id);
+    pub fn get_market(env: Env, market_id: u32) -> Option<MarketData> {
+        let key = DataKey::Market(market_id);
+        let market: Option<MarketData> = env.storage().persistent().get(&key);
         if market.is_some() {
+            let ttl = 6_307_200u32.min(env.storage().max_ttl());
             env.storage()
                 .persistent()
-                .extend_ttl(&market_id, 6307200, 6307200);
+                .extend_ttl(&key, ttl, ttl);
         }
         market
     }
@@ -1189,7 +1200,7 @@ impl MarketsContract {
         };
 
         let (gross_payout, remainder) =
-            Self::calculate_payout_with_remainder(env.clone(), market_id, claimant.clone());
+            Self::calculate_payout_with_remainder_loaded(&env, market_id, &market, &bet);
         if gross_payout < 0 || (gross_payout == 0 && remainder.is_none()) {
             panic_with_error!(env, ContractError::InvalidOutcome);
         }
