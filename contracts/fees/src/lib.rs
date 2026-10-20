@@ -492,6 +492,13 @@ impl FeesContract {
 
         Self::assert_fees_not_paused(&env)?;
 
+        // Enforce withdrawal cooldown: reject if called before next_withdrawal.
+        let now = env.ledger().timestamp();
+        let schedule_check = Self::get_withdrawal_schedule_internal(&env);
+        if schedule_check.last_withdrawal > 0 && now < schedule_check.next_withdrawal {
+            return Err(ContractError::WithdrawalCooldownActive);
+        }
+
         let collected: i128 = env
             .storage()
             .persistent()
@@ -515,7 +522,6 @@ impl FeesContract {
             .set(&Symbol::new(&env, COLLECTED_FEES_KEY), &0i128);
 
         // Update withdrawal schedule
-        let now = env.ledger().timestamp();
         let mut schedule = Self::get_withdrawal_schedule_internal(&env);
         schedule.last_withdrawal = now;
         schedule.next_withdrawal = now
