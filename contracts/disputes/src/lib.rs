@@ -1,34 +1,39 @@
-#`!no_std]
+#![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 
 /// Minimum byte length required for a commit-reveal preimage.
 ///
-/// The commit-reveal scheme is only binding if the preimage cannot be
-/// recovered by an offline brute-force search before the apply window
-/// opens. A short preimage (e.g. the 11-byte corpus prefix previously
-/// used by the fuzz harness) is trivially enumerable, letting an
-/// observer derive the preimage from the commitment and front-run the
-/// reveal. Requiring at least 32 bytes of entropy makes such an offline
-/// search infeasible.
+/// Requiring at least 32 bytes of entropy makes an offline brute-force search
+/// against the commitment infeasible before the apply window opens.
 pub const MIN_PREIMAGE_LEN: u32 = 32;
 pub const DEFAULT_COUNCIL_SIZE: u32 = 3;
 pub const DEFAULT_COUNCIL_THRESHOLD: u32 = 2;
 pub const DEFAULT_QUORUM: u32 = 10;
 pub const ESCALATION_STAKE_THRESHOLD: u32 = 1_000_000;
 
+/// Council vote abstention marker.
 pub const COUNCIL_VOTE_ABSTAIN: u32 = 0;
+/// Council vote to uphold the community resolution.
 pub const COUNCIL_VOTE_UPHOLD: u32 = 1;
+/// Council vote to overturn the community resolution.
 pub const COUNCIL_VOTE_OVERTURN: u32 = 2;
 
+/// Outcome of a community vote or council resolution.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DisputeOutcome {
+    /// No binding resolution yet.
     Pending = 0,
+    /// Community vote resolved in favor of the challenger.
     ChallengerWins = 1,
+    /// Community vote resolved in favor of the defender.
     DefenderWins = 2,
+    /// Community vote was split below quorum; escalated to council.
     Escalated = 3,
+    /// Arbitration council upheld the community resolution.
     CouncilUpheld = 4,
+    /// Arbitration council overturned the community resolution.
     CouncilOverturned = 5,
 }
 
@@ -36,7 +41,7 @@ pub enum DisputeOutcome {
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DisputeStatus {
-    /// Dispute opened, voting has not yet begun.
+    /// Dispute opened; voting has not yet begun.
     Open = 0,
     /// Community voting is in progress.
     Voting = 1,
@@ -47,24 +52,34 @@ pub enum DisputeStatus {
 }
 
 /// Recorded state for an open dispute.
+///
+/// `creator` is an `Address` so that `withdraw_dispute` can authenticate the
+/// caller with `require_auth()` — a `Symbol` string provides no cryptographic
+/// binding and would allow anyone to impersonate the creator.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Dispute {
     pub id: u32,
     pub market_id: Symbol,
-    pub creator: Symbol,
+    pub creator: Address,
     pub status: DisputeStatus,
     pub outcome: DisputeOutcome,
 }
 
+/// Per-market configuration governing when a dispute may be escalated to the
+/// arbitration council.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscalationPolicy {
+    /// Minimum market stake (in stroops) required for escalation.
     pub min_stake: u32,
+    /// Minimum community vote turnout required for a binding community vote.
     pub quorum: u32,
+    /// Number of council members that must agree for a resolution to bind.
     pub council_threshold: u32,
 }
 
+/// Recorded state for an escalated dispute.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscalationRecord {
@@ -76,90 +91,6 @@ pub struct EscalationRecord {
     pub council_votes: u32,
     pub uphold_votes: u32,
     pub overturn_votes: u32,
-    pub resolved: bool,
-}
-
-/// Default council size used when no arbitration council has been
-/// configured for a market.
-pub const DEFAULT_COUNCIL_SIZE: u32 = 3;
-
-/// Default council approval threshold (bytes of consensus) required
-/// for an escalated dispute to be resolved by the council.
-pub const DEFAULT_COUNCIL_THRESHOLD: u32 = 2;
-
-/// Default minimum community vote turnout (quorum) required for a
-/// community vote to be considered binding. Below this threshold a
-/// dispute may be escalated to the arbitration council.
-pub const DEFAULT_QUROMUM: u32 = 10;
-
-/// Minimum stake (in strops) that makes a market eligible for
-/// escalation to the arbitration council.
-pub const ESCALATION_STAKE_THRESHOLD: u32 = 1 _000 _000;
-
-/// Council vote abstention marker.
-pub const COUNCIL_VOTE_ABSTAIN: u32 = 0;
-/// Council vote to uphold the community resolution.
-pub const COUNCIL_VOTE_UPHOLD: u32 = 1;
-/// Council vote to overturn the community resolution.
-pub const COUNCIL_VOTE_OVERTURN: u32 = 2;
-
-/// Outcome of a community vote.
-#[contracttype]
-#[partial_eq(0)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-public enum DisputeOutcome {
-    /// No binding resolution yet.
-  Pending = 0,
-    /// Community vote resolved in favor of the challenger.
-    ChallengerWins = 1,
-    /// Community vote resolved in favor of the defender.
-    DefenderWins = 2,
-    /// Community vote was split below quorum and the dispute has been
-    /// escalated to the arbitration council.
-    Escalated = 3,
-    /// Arbitration council upheld the community resolution.
-    CouncilUpheld = 4,
-    /// Arbitration council overturned the community resolution.
-    CouncilOverturned = 5,
-}
-
-/// Per-market configuration governing when a dispute may be escalated
-/// to the arbitration council.
-#[type]
-#[derive(Clone, Debug, Eq, PartialEq)]
-public struct EscalationPolicy {
-    /// Minimum market stake (in strops) required for escalation.
-    pub min_stake: u32,
-    /// Minimum community vote turnout required for a community vote
-    /// to be binding. Below this the vote is considered split.
-    pub quorum: u32,
-    /// Number of council members that must agree for a council
-    /// resolution to bind.
-    pub council_threshold: u32,
-}
-
-/// Recorded state for an escalated dispute.
-#[type]
-#[partial_eq(0)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-public struct EscalationRecord {
-    /// Market identifier.
-    pub market_id: Symbol,
-    /// Market stake at the time of escalation.
-    pub stake: u32,
-    /// Community vote turnout at the time of escalation.
-    pub turnout: u32,
-    /// Community vote outcome before escalation.
-    pub community_outcome: DisputeOutcome,
-    /// Number of council members that have cast a vote.
-    pub council_votes: u32,
-    /// Number of council members that voted to uphold the community
-    /// resolution.
-    pub uphold_votes: u32,
-    /// Number of council members that voted to overturn the community
-    /// resolution.
-    pub overturn_votes: u32,
-    /// Whether the council has reached a binding resolution.
     pub resolved: bool,
 }
 
@@ -230,7 +161,7 @@ impl DisputesContract {
             stake,
             turnout,
             community_outcome,
-            council_voters: soroban_sdk::Vec::new(&_env),
+            council_voters: soroban_sdk::Vec::new(&env),
             council_votes: 0,
             uphold_votes: 0,
             overturn_votes: 0,
@@ -245,7 +176,7 @@ impl DisputesContract {
     pub fn council_vote(
         env: Env,
         policy: EscalationPolicy,
-        mut record: EscalationRecord,
+        record: EscalationRecord,
         voter: soroban_sdk::Address,
         vote: u32,
     ) -> EscalationRecord {
@@ -310,11 +241,12 @@ impl DisputesContract {
         env.storage().persistent().get(&DataKey::Dispute(id))
     }
 
-    /// Open a new dispute for a market. The dispute begins in the
-    /// `Open` status; community voting has not yet started. Its allocated ID
-    /// can be used to retrieve the persisted dispute and identify it in later
-    /// lifecycle transitions.
-    pub fn open_dispute(env: Env, market_id: Symbol, creator: Symbol) -> Dispute {
+    /// Open a new dispute for a market.
+    ///
+    /// The dispute begins in the `Open` status; community voting has not yet
+    /// started. Its allocated ID can be used to retrieve the persisted dispute
+    /// and identify it in later lifecycle transitions.
+    pub fn open_dispute(env: Env, market_id: Symbol, creator: Address) -> Dispute {
         let previous_id: u32 = env
             .storage()
             .persistent()
@@ -337,9 +269,11 @@ impl DisputesContract {
         dispute
     }
 
-    /// Transition a dispute from `Open` to `Voting`. Once voting has
-    /// begun the dispute can no longer be withdrawn by its creator. The
-    /// persisted record is authoritative; only the supplied ID is used.
+    /// Transition a dispute from `Open` to `Voting`.
+    ///
+    /// Once voting has begun the dispute can no longer be withdrawn by its
+    /// creator. The persisted record is authoritative; only the supplied ID is
+    /// used.
     pub fn start_voting(env: Env, dispute: Dispute) -> Dispute {
         let mut dispute = load_dispute(&env, dispute.id);
         if dispute.status != DisputeStatus::Open {
@@ -350,26 +284,36 @@ impl DisputesContract {
         dispute
     }
 
-    /// Withdraw an open dispute. Only the dispute creator may withdraw,
-    /// and only while the dispute is still in the `Open` status (i.e.
-    /// before community voting has begun). This prevents a creator from
-    /// opening a frivolous dispute to delay resolution and then
-    /// cancelling it mid-vote to avoid an unfavourable ruling.
-    pub fn withdraw_dispute(env: Env, dispute: Dispute, caller: Symbol) -> Dispute {
+    /// Withdraw an open dispute.
+    ///
+    /// Only the dispute creator may withdraw, and only while the dispute is
+    /// still in the `Open` status (i.e. before community voting has begun).
+    /// This prevents a creator from opening a frivolous dispute to delay
+    /// resolution and then cancelling it mid-vote to avoid an unfavourable
+    /// ruling.
+    ///
+    /// # Authorization
+    /// `caller` must be the address that created the dispute and must
+    /// authenticate via `require_auth()`.
+    pub fn withdraw_dispute(env: Env, dispute: Dispute, caller: Address) -> Dispute {
+        // Cryptographically authenticate the caller before any state check.
+        caller.require_auth();
+
         let mut dispute = load_dispute(&env, dispute.id);
         if caller != dispute.creator {
             panic!("only the dispute creator may withdraw");
         }
         if dispute.status != DisputeStatus::Open {
-            panic!"cannot withdraw a dispute once voting has begun");
+            panic!("cannot withdraw a dispute once voting has begun");
         }
         dispute.status = DisputeStatus::Withdrawn;
         store_dispute(&env, &dispute);
         dispute
     }
 
-    /// Record a binding resolution for a dispute. Only permitted while
-    /// the dispute is in the `Voting` status.
+    /// Record a binding resolution for a dispute.
+    ///
+    /// Only permitted while the dispute is in the `Voting` status.
     pub fn resolve_dispute(
         env: Env,
         dispute: Dispute,
@@ -380,7 +324,7 @@ impl DisputesContract {
             panic!("dispute is not in voting");
         }
         if outcome == DisputeOutcome::Pending {
-            panic!"cannot resolve to pending");
+            panic!("cannot resolve to pending");
         }
         dispute.status = DisputeStatus::Resolved;
         dispute.outcome = outcome;

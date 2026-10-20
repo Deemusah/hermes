@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use fees::{ContractError, FeeConfig, FeesContract, FeesContractClient};
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+use soroban_sdk::{contract, contractimpl, testutils::Address as _, xdr::ToXdr, Address, Env};
 use std::ops::Deref;
 
 #[contract]
@@ -87,6 +87,13 @@ fn default_fee_config() -> FeeConfig {
     }
 }
 
+/// Compute the sha256 hash of a FeeConfig's XDR encoding, matching what
+/// the contract verifies in `update_fee_config`.
+fn fee_config_hash(env: &Env, config: &FeeConfig) -> soroban_sdk::BytesN<32> {
+    let bytes = config.to_xdr(env);
+    env.crypto().sha256(&bytes)
+}
+
 // ============================================================
 // Auth Boundary Tests — initialize
 // ============================================================
@@ -144,6 +151,35 @@ fn test_initialize_cannot_reinitialize() {
 // ============================================================
 
 #[test]
+fn test_update_fee_config_rejects_hash_mismatch() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let client = register_and_initialize(&env, &admin);
+
+    let config = default_fee_config();
+
+    // Commit a hash for a *different* (wrong) config
+    let wrong_config = FeeConfig {
+        platform_fee_percentage: 100,
+        creation_fee: 0,
+        min_fee_amount: 1,
+        max_fee_amount: 1_000_000,
+        collection_threshold: 50_000,
+        fees_enabled: true,
+    };
+    let wrong_hash = fee_config_hash(&env, &wrong_config);
+    client.commit_fee_config(&admin, &wrong_hash);
+
+    // Reveal with a different config — must be rejected
+    let result = client.try_update_fee_config(&admin, &config);
+    assert!(
+        matches!(result, Err(Ok(ContractError::CommitHashMismatch))),
+        "update_fee_config must reject configs that don't match the committed hash, got: {:?}",
+        result
+    );
+}
+
+#[test]
 fn test_update_fee_config_rejects_non_admin() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -165,7 +201,7 @@ fn test_update_fee_config_succeeds_with_admin_auth() {
     let client = register_and_initialize(&env, &admin);
 
     let config = default_fee_config();
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0x11u8; 32]);
+    let hash = fee_config_hash(&env, &config);
     client.commit_fee_config(&admin, &hash);
     let _ = env.auths();
     client.update_fee_config(&admin, &config);
@@ -221,7 +257,7 @@ fn test_update_fee_config_rejects_zero_minimum_when_fees_enabled() {
     assert!(matches!(result, Err(Ok(ContractError::InvalidInput))));
 
     config.fees_enabled = false;
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0x22u8; 32]);
+    let hash = fee_config_hash(&env, &config);
     client.commit_fee_config(&admin, &hash);
     client.update_fee_config(&admin, &config);
 }
@@ -239,7 +275,7 @@ fn test_update_fee_config_requires_commit_and_apply_timelock() {
         Err(Ok(ContractError::NoPendingFeeCommit))
     ));
 
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0x33u8; 32]);
+    let hash = fee_config_hash(&env, &config);
     client.commit_fee_config(&admin, &hash);
     client.update_fee_config(&admin, &config);
 
@@ -791,7 +827,7 @@ fn test_all_state_changing_entrypoints_succeed_with_proper_auth() {
 
     let config = default_fee_config();
 
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0x44u8; 32]);
+    let hash = fee_config_hash(&env, &config);
     client.commit_fee_config(&admin, &hash);
     assert!(
         client.try_update_fee_config(&admin, &config).is_ok(),
@@ -883,7 +919,7 @@ fn test_pending_fee_config_inspection_and_apply() {
     let new_cfg = default_fee_config();
     let original_cfg = client.get_fee_config();
     assert_ne!(new_cfg, original_cfg);
-    let hash = soroban_sdk::BytesN::from_array(&env, &[0x55u8; 32]);
+    let hash = fee_config_hash(&env, &new_cfg);
     client.commit_fee_config(&admin, &hash);
     client.update_fee_config(&admin, &new_cfg);
     assert_eq!(client.get_fee_config(), original_cfg);
