@@ -18,8 +18,9 @@
 //!   registered admin address.
 //! - Read-only entrypoints (`is_allowed`, `get_allowlist`, `list_allowlists`,
 //!   `get_admin`, `version`) do not require authentication.
-//! - Every entrypoint extends the instance storage TTL, preserving the admin
-//!   and initialization state across periods of inactivity.
+//! - Every entrypoint extends the instance storage TTL, and admin and registry state
+//!   are maintained in persistent storage with explicit TTL management, preventing
+//!   admin lockouts if instance TTL expires.
 //!
 //! # Event Topics
 //!
@@ -107,15 +108,31 @@ impl AllowlistContract {
         Self::bump_instance_ttl(&env);
         admin.require_auth();
 
-        if env.storage().instance().has(&DataKey::Initialized) {
+        if Self::is_initialized(&env) {
             return Err(AllowlistError::AlreadyInitialized);
         }
 
-        env.storage().instance().set(&DataKey::Initialized, &true);
-        env.storage().instance().set(&DataKey::Admin, &admin);
+        // Persist admin, initialization status, and registry in persistent storage with TTL management
+        env.storage().persistent().set(&DataKey::Initialized, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Initialized, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Admin, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+
         env.storage()
             .persistent()
             .set(&DataKey::AllowlistRegistry, &Vec::<Symbol>::new(&env));
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::AllowlistRegistry, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+
+        // Keep instance storage synchronized for backward compatibility
+        env.storage().instance().set(&DataKey::Initialized, &true);
+        env.storage().instance().set(&DataKey::Admin, &admin);
 
         events::emit_allowlist_initialized(&env, &admin);
 
@@ -168,6 +185,9 @@ impl AllowlistContract {
             env.storage()
                 .persistent()
                 .set(&DataKey::AllowlistRegistry, &registry);
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::AllowlistRegistry, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
         }
 
         events::emit_allowlist_created(&env, &admin, &allowlist_id);
@@ -419,6 +439,9 @@ impl AllowlistContract {
         env.storage()
             .persistent()
             .set(&DataKey::AllowlistRegistry, &filtered);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::AllowlistRegistry, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
 
         events::emit_allowlist_deleted(&env, &admin, &allowlist_id, count);
 
@@ -452,6 +475,13 @@ impl AllowlistContract {
         }
 
         env.storage()
+            .persistent()
+            .set(&DataKey::Admin, &new_admin);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Admin, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+
+        env.storage()
             .instance()
             .set(&DataKey::Admin, &new_admin);
 
@@ -477,10 +507,7 @@ impl AllowlistContract {
     pub fn get_admin(env: Env) -> Result<Address, AllowlistError> {
         Self::bump_instance_ttl(&env);
         Self::require_initialized(&env)?;
-        env.storage()
-            .instance()
-            .get::<DataKey, Address>(&DataKey::Admin)
-            .ok_or(AllowlistError::NotInitialized)
+        Self::get_admin_internal(&env).ok_or(AllowlistError::NotInitialized)
     }
 
     /// Check whether an `address` is present in the allowlist identified by
@@ -530,6 +557,11 @@ impl AllowlistContract {
     /// Return all registered allowlist IDs.
     pub fn list_allowlists(env: Env) -> Vec<Symbol> {
         Self::bump_instance_ttl(&env);
+        if env.storage().persistent().has(&DataKey::AllowlistRegistry) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::AllowlistRegistry, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+        }
         env.storage()
             .persistent()
             .get(&DataKey::AllowlistRegistry)
@@ -548,9 +580,33 @@ impl AllowlistContract {
             .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_TO);
     }
 
+    /// Check if the contract is initialized, extending TTL if stored in persistent storage.
+    fn is_initialized(env: &Env) -> bool {
+        if env.storage().persistent().has(&DataKey::Initialized) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::Initialized, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+            true
+        } else {
+            env.storage().instance().has(&DataKey::Initialized)
+        }
+    }
+
+    /// Read admin address, checking persistent storage first and falling back to instance storage.
+    fn get_admin_internal(env: &Env) -> Option<Address> {
+        if env.storage().persistent().has(&DataKey::Admin) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::Admin, ALLOWLIST_TTL_THRESHOLD, ALLOWLIST_TTL_TO);
+            env.storage().persistent().get(&DataKey::Admin)
+        } else {
+            env.storage().instance().get(&DataKey::Admin)
+        }
+    }
+
     /// Assert the contract is initialized.
     fn require_initialized(env: &Env) -> Result<(), AllowlistError> {
-        if !env.storage().instance().has(&DataKey::Initialized) {
+        if !Self::is_initialized(env) {
             return Err(AllowlistError::NotInitialized);
         }
         Ok(())
@@ -558,11 +614,7 @@ impl AllowlistContract {
 
     /// Assert that `caller` is the registered admin.
     fn require_admin(env: &Env, caller: &Address) -> Result<(), AllowlistError> {
-        let stored: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(AllowlistError::NotInitialized)?;
+        let stored: Address = Self::get_admin_internal(env).ok_or(AllowlistError::NotInitialized)?;
         if caller != &stored {
             return Err(AllowlistError::Unauthorized);
         }
