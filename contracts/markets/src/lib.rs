@@ -334,7 +334,7 @@ impl MarketsContract {
                         None => panic_with_error!(env, ContractError::InvalidPayoutCurve),
                     };
                 }
-                if sum == 0 || sum > 10_000 {
+                if sum != 10_000 {
                     panic_with_error!(env, ContractError::InvalidPayoutCurve);
                 }
             }
