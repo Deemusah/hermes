@@ -577,6 +577,88 @@ fn test_invalid_payout_curves_rejected() {
     );
 }
 
+#[test]
+fn test_custom_weights_exactly_10000_required() {
+    let te = setup_test_env();
+
+    let mut tags = Vec::new(&te.env);
+    tags.push_back(String::from_str(&te.env, "A"));
+    tags.push_back(String::from_str(&te.env, "B"));
+
+    // Test 1: Custom weights summing to 9_999 (less than 10_000) must be rejected
+    let mut under_weights = Vec::new(&te.env);
+    under_weights.push_back(5000);
+    under_weights.push_back(4999); // sum = 9_999 < 10_000
+    let under_custom = PayoutCurveConfig::custom_weights(under_weights);
+    let res_under = te.client.try_create_market_with_curve(
+        &te.creator,
+        &String::from_str(&te.env, "Q"),
+        &String::from_str(&te.env, "D"),
+        &1000000,
+        &String::from_str(&te.env, "S"),
+        &tags,
+        &under_custom,
+    );
+    assert_eq!(
+        res_under.unwrap_err().unwrap(),
+        ContractError::InvalidPayoutCurve.into()
+    );
+
+    // Test 2: Custom weights summing to 5_000 (50% of pool) must be rejected
+    let mut half_weights = Vec::new(&te.env);
+    half_weights.push_back(2500);
+    half_weights.push_back(2500); // sum = 5_000 < 10_000
+    let half_custom = PayoutCurveConfig::custom_weights(half_weights);
+    let res_half = te.client.try_create_market_with_curve(
+        &te.creator,
+        &String::from_str(&te.env, "Q"),
+        &String::from_str(&te.env, "D"),
+        &1000000,
+        &String::from_str(&te.env, "S"),
+        &tags,
+        &half_custom,
+    );
+    assert_eq!(
+        res_half.unwrap_err().unwrap(),
+        ContractError::InvalidPayoutCurve.into()
+    );
+
+    // Test 3: Custom weights summing to 1 must be rejected
+    let mut one_weight = Vec::new(&te.env);
+    one_weight.push_back(1);
+    one_weight.push_back(0); // sum = 1 < 10_000
+    let one_custom = PayoutCurveConfig::custom_weights(one_weight);
+    let res_one = te.client.try_create_market_with_curve(
+        &te.creator,
+        &String::from_str(&te.env, "Q"),
+        &String::from_str(&te.env, "D"),
+        &1000000,
+        &String::from_str(&te.env, "S"),
+        &tags,
+        &one_custom,
+    );
+    assert_eq!(
+        res_one.unwrap_err().unwrap(),
+        ContractError::InvalidPayoutCurve.into()
+    );
+
+    // Test 4: Custom weights summing to exactly 10_000 must succeed
+    let mut exact_weights = Vec::new(&te.env);
+    exact_weights.push_back(6000);
+    exact_weights.push_back(4000); // sum = 10_000 (exactly!)
+    let exact_custom = PayoutCurveConfig::custom_weights(exact_weights);
+    let res_exact = te.client.try_create_market_with_curve(
+        &te.creator,
+        &String::from_str(&te.env, "Exact weights?"),
+        &String::from_str(&te.env, "Desc"),
+        &(te.env.ledger().timestamp() + 86400),
+        &String::from_str(&te.env, "Oracle"),
+        &tags,
+        &exact_custom,
+    );
+    assert!(res_exact.is_ok(), "Weights summing to 10_000 should be accepted");
+}
+
 // ===========================================================================
 //  ISSUE #012: DUST-SAFE WITHDRAWAL TESTS
 // ===========================================================================
