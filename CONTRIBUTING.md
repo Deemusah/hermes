@@ -50,5 +50,32 @@ code means the deployed contract does not match the local build.
 - Keep PRs focused on a single concern.
 - All CI checks (tests + snapshot goldens) must pass before merge.
 - Do not push directly to `main`; open a pull request instead.
+- **For contract or core code changes, update CHANGELOG.md** in the `[Unreleased]` section describing your changes
 - For contract changes, run `verify_contract_sync.sh` post-deploy and attach
   the output to your PR description.
+
+## Updating the Changelog
+
+If your PR modifies code in `contracts/` or `crates/`, you must update `CHANGELOG.md`:
+
+1. Open `CHANGELOG.md` and locate the `[Unreleased]` section
+2. Add your changes under the appropriate subsection:
+   - **Added**: New features or contracts
+   - **Changed**: Changes to existing functionality
+   - **Deprecated**: Features being phased out
+   - **Removed**: Removed features
+   - **Fixed**: Bug fixes
+   - **Security**: Security-related changes
+3. Be descriptive and indicate which contract(s) are affected
+
+Example:
+```markdown
+### Fixed
+- **markets**: Corrected fee calculation in `place_bet` (#1234)
+- **disputes**: Fixed race condition in dispute resolution
+
+### Added
+- **validators**: New validator eligibility check in initialization
+```
+
+See [Keep a Changelog](https://keepachangelog.com/) for detailed guidelines on formatting.
