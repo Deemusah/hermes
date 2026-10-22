@@ -69,7 +69,19 @@ mod cross_oracle_staleness_tests;
 mod resolution;
 mod storage;
 mod tokens;
-mod types;
+
+// Domain-specific type modules
+mod bet_types;
+mod dispute_types;
+mod fee_types;
+mod governance_types;
+mod market_types;
+mod oracle_types;
+mod query_types;
+mod statistics_types;
+mod support_types;
+pub mod types;
+
 mod upgrade_manager;
 mod utils;
 mod validation;
