@@ -81,13 +81,31 @@ impl Analytics {
     /// @param env The contract environment.
     /// @param admin The address that will own the contract and manage authorized reporters.
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
-        // Check if already initialized
-        if env.storage().persistent().has(&DataKey::Admin) {
+        admin.require_auth();
+        if env.storage().instance().has(&DataKey::Initialized) {
             return Err(ContractError::AlreadyInitialized);
         }
 
-        // Store the admin address
-        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Initialized, &true);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxCapacity, &storage::DEFAULT_MAX_CAPACITY);
+
+        env.events().publish(
+            (symbol_short!("analytics"), symbol_short!("init")),
+            admin,
+        );
+
+        Ok(())
+    }
+
+    /// Sets a new admin for the contract. Requires authorization from current admin.
+    pub fn set_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        Self::assert_admin(&env, &caller)?;
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
 
         // Initialize empty set of authorized reporters
         let reporters: Vec<Address> = Vec::new(&env);
@@ -285,3 +303,4 @@ impl Analytics {
         sorted.get(idx).unwrap_or(0)
     }
 }
+
