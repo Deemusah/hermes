@@ -31,8 +31,6 @@
 
 #![no_std]
 
-extern crate std;
-
 mod err;
 mod events;
 mod pause;
@@ -41,7 +39,7 @@ mod types;
 pub use err::ReportingError;
 pub use types::{DataKey, Report};
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 
 /// The Reporting contract.
 #[contract]
@@ -295,6 +293,7 @@ impl ReportingContract {
     /// # Errors
     ///
     /// * [`ReportingError::ReportingPaused`] — Reporting is currently paused.
+    /// * [`ReportingError::ReportNotFound`] — No report with the given ID exists.
     ///
     /// # Auth
     ///
@@ -306,7 +305,35 @@ impl ReportingContract {
     ) -> Result<(), ReportingError> {
         admin.require_auth();
         pause::require_not_paused(&env)?;
-        let _ = report_id;
+
+        let report = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Report>(&DataKey::Report(report_id))
+            .ok_or(ReportingError::ReportNotFound)?;
+
+        let market_key = DataKey::MarketReports(report.market_id);
+        if let Some(mut market_reports) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Vec<u32>>(&market_key)
+        {
+            let mut index = 0;
+            while index < market_reports.len() {
+                if market_reports.get(index) == Some(report_id) {
+                    market_reports.remove(index);
+                    break;
+                }
+                index += 1;
+            }
+            env.storage()
+                .persistent()
+                .set(&market_key, &market_reports);
+        }
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Report(report_id));
         Ok(())
     }
 

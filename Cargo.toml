@@ -11,12 +11,15 @@ members = [
   "contracts/predictify-hybrid/fuzz",
   "contracts/disputes/fuzz",
   "contracts/resolution/fuzz",
+  "contracts/auction",
+  "contracts/analytics",
 ]
 exclude = []
 
 [workspace.dependencies]
-soroban-sdk = "25.0.0"
+soroban-sdk = "22.0.0"
 ethnum = "1.5.3"
+criterion = "0.5"
 
 [profile.release]
 opt-level = "z"
@@ -34,8 +37,3 @@ inherits = "release"
 debug-assertions = true
 
 
-[workspace.members]
-"contracts/auction"
-
-[workspace.members]
-"contracts/analytics"
