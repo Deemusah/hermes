@@ -37,10 +37,10 @@ impl Analytics {
 
     /// Initializes the analytics contract with the specified admin address.
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Initialized) {
             return Err(ContractError::AlreadyInitialized);
         }
-        admin.require_auth();
 
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -59,6 +59,7 @@ impl Analytics {
 
     /// Sets a new admin for the contract. Requires authorization from current admin.
     pub fn set_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), ContractError> {
+        caller.require_auth();
         Self::assert_admin(&env, &caller)?;
         env.storage().instance().set(&DataKey::Admin, &new_admin);
 
@@ -525,3 +526,4 @@ impl Analytics {
         Ok(buckets)
     }
 }
+
