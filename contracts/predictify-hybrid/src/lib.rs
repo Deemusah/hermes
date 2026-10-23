@@ -1820,7 +1820,7 @@ impl PredictifyHybrid {
     /// State-changing paths may emit events through internal managers; read-only query paths emit no events.
     /// Set the minimum oracle price-confidence threshold in basis points.
     /// Prices from oracles with confidence ratio above this threshold are rejected.
-    /// `min_confidence_bps` = 0 disables the check.
+    /// `min_confidence_bps` = 0 disables the check. The default is 5000 (50%).
     pub fn set_oracle_confidence_threshold(env: Env, admin: Address, min_confidence_bps: u32) {
         admin.require_auth();
         if min_confidence_bps > 10_000 {
@@ -1831,12 +1831,12 @@ impl PredictifyHybrid {
             .set(&Symbol::new(&env, "oracle_conf_bps"), &min_confidence_bps);
     }
 
-    /// Get the configured oracle confidence threshold in bps (0 = disabled).
+    /// Get the configured oracle confidence threshold in bps (default 5000; 0 = disabled).
     pub fn get_oracle_confidence_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&Symbol::new(&env, "oracle_conf_bps"))
-            .unwrap_or(0u32)
+            .unwrap_or(5_000u32)
     }
 
     /// Set configurable weight for a specific oracle source
