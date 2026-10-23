@@ -417,15 +417,15 @@ fn test_collect_fees_fails_below_threshold() {
         other => panic!("Collection below threshold should fail, got: {:?}", other),
     }
 
-    // Schedule status must be updated to Failed
+    // A threshold rejection does not change the withdrawal schedule.
     assert_eq!(
         client.get_withdrawal_schedule().status,
-        fees::FeeWithdrawalStatus::Failed
+        fees::FeeWithdrawalStatus::Ready
     );
 }
 
 #[test]
-fn test_fee_withdrawal_status_failed_and_recovery() {
+fn test_fee_withdrawal_status_unchanged_and_recovery() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let client = register_and_initialize(&env, &admin);
@@ -440,8 +440,8 @@ fn test_fee_withdrawal_status_failed_and_recovery() {
         fail_result,
         Err(Ok(ContractError::BelowCollectionThreshold))
     );
-    let failed_schedule = client.get_withdrawal_schedule();
-    assert_eq!(failed_schedule.status, fees::FeeWithdrawalStatus::Failed);
+    let unchanged_schedule = client.get_withdrawal_schedule();
+    assert_eq!(unchanged_schedule.status, fees::FeeWithdrawalStatus::Ready);
 
     // 3. Deposit sufficient fees exceeding threshold (150M stroops > 100M threshold)
     let _ = invoke_as_authorized_caller(&env, &client, 150_000_000, |market, fees, caller, amount| {
