@@ -213,6 +213,10 @@ pub enum DataKey {
     /// Per-market cool-off override in seconds (u64) for a specific `market_id`.
     /// Takes precedence over `CoolOffPeriod` when present.
     PerMarketCoolOff(Symbol),
+    /// Global maximum number of outcomes a market may declare.
+    /// Value: `u32`. Admins can raise or lower it without a contract upgrade;
+    /// when unset, [`crate::markets::DEFAULT_MAX_OUTCOMES_PER_MARKET`] applies.
+    MaxOutcomesPerMarket,
 }
 
 /// Storage format version for migration tracking

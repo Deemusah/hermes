@@ -34,6 +34,7 @@ const DATA_KEY_VARIANTS: &[&str] = &[
     "UserLastBetTime",
     "CoolOffPeriod",
     "PerMarketCoolOff",
+    "MaxOutcomesPerMarket",
 ];
 
 #[test]

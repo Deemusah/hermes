@@ -46,3 +46,6 @@ pub mod disputes_gas_snap;
 /// boundary conditions around `end_time`, and verifies the error metadata
 /// (code, description, string code).
 pub mod market_closed_tests;
+
+/// Runtime-configurable cap on outcomes per market (issue #009).
+pub mod max_outcomes_cap_tests;
