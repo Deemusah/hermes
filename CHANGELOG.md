@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial CHANGELOG.md following Keep a Changelog format
 - CI check requiring CHANGELOG.md updates for PRs modifying contract code
+- **predictify-hybrid**: `update_market_question` entrypoint lets a market creator fix a typo in the question before any stake is committed. Updates are rejected once `total_staked != 0`, after `end_time`, outside the `Active` state, or for callers other than the market creator; the stored metadata commitment is refreshed so cached metadata fails verification (closes #4)
 
 ### Changed
 
