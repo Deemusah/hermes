@@ -105,6 +105,15 @@ pub struct MaxBetCapSetEvent {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaxOutcomesPerMarketSetEvent {
+    pub admin: Address,
+    pub max_outcomes: u32,
+    pub nonce: u64,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleResultEvent {
     pub market_id: Symbol,
     pub result: String,
@@ -1236,6 +1245,19 @@ impl EventEmitter {
         };
         Self::store_event(env, &event_sym, &event);
         env.events().publish((event_sym,), event);
+    }
+
+    pub fn emit_max_outcomes_per_market_set(env: &Env, admin: &Address, max_outcomes: u32) {
+        let event_sym = symbol_short!("mxoutc");
+        let event = MaxOutcomesPerMarketSetEvent {
+            admin: admin.clone(),
+            max_outcomes,
+            nonce: Self::get_and_increment_nonce(env, event_sym.clone()),
+            timestamp: env.ledger().timestamp(),
+        };
+        // `store_event` both persists the payload and publishes it under
+        // `event_sym`, so no extra `publish` here.
+        Self::store_event(env, &event_sym, &event);
     }
 
     pub fn emit_oracle_result(
