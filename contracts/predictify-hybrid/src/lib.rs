@@ -346,6 +346,12 @@ impl PredictifyHybrid {
             panic_with_error!(env, e);
         }
 
+        // Enforce the admin-configurable outcome cap before anything else can
+        // touch storage, so the limit holds for every creation path.
+        if let Err(e) = crate::markets::OutcomeCapManager::validate_outcome_count(&env, &outcomes) {
+            panic_with_error!(env, e);
+        }
+
         if let Err(e) = crate::validation::CreationValidator::validate_market_creation(&env, &question, &outcomes, &duration_days) {
             panic_with_error!(env, e);
         }
@@ -1820,7 +1826,7 @@ impl PredictifyHybrid {
     /// State-changing paths may emit events through internal managers; read-only query paths emit no events.
     /// Set the minimum oracle price-confidence threshold in basis points.
     /// Prices from oracles with confidence ratio above this threshold are rejected.
-    /// `min_confidence_bps` = 0 disables the check.
+    /// `min_confidence_bps` = 0 disables the check. The default is 5000 (50%).
     pub fn set_oracle_confidence_threshold(env: Env, admin: Address, min_confidence_bps: u32) {
         admin.require_auth();
         if min_confidence_bps > 10_000 {
@@ -1831,12 +1837,12 @@ impl PredictifyHybrid {
             .set(&Symbol::new(&env, "oracle_conf_bps"), &min_confidence_bps);
     }
 
-    /// Get the configured oracle confidence threshold in bps (0 = disabled).
+    /// Get the configured oracle confidence threshold in bps (default 5000; 0 = disabled).
     pub fn get_oracle_confidence_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&Symbol::new(&env, "oracle_conf_bps"))
-            .unwrap_or(0u32)
+            .unwrap_or(5_000u32)
     }
 
     /// Set configurable weight for a specific oracle source
@@ -3406,6 +3412,53 @@ impl PredictifyHybrid {
         Ok(())
     }
 
+    /// Sets the maximum number of outcomes a market may declare (admin only).
+    ///
+    /// The cap used to be a hard-coded `10` compiled into the contract, which
+    /// meant changing it required a contract upgrade. It now lives in
+    /// persistent storage, so governance can raise or lower it between
+    /// deployments.
+    ///
+    /// The cap is validated on market creation
+    /// ([`markets::MarketValidator::validate_market_params`]): a market whose
+    /// `outcomes` vector exceeds it is rejected with
+    /// [`Error::TooManyOutcomes`]. Markets that already exist keep their
+    /// outcomes — lowering the cap must never invalidate a live market, since
+    /// its bets would then be unresolvable.
+    ///
+    /// # Parameters
+    ///
+    /// - `admin` – Must be the primary admin address, and must authorize the call
+    /// - `max_outcomes` – New cap, within
+    ///   [`markets::MIN_OUTCOMES_PER_MARKET`]`..=`[`markets::MAX_OUTCOMES_PER_MARKET_CEILING`]
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::Unauthorized`] when `admin` is not the primary admin
+    /// - [`Error::InvalidInput`] when `max_outcomes` is outside the allowed range
+    ///
+    /// # Events
+    ///
+    /// Emits a `max_outcomes_per_market_set` event (topic `mxoutc`) carrying the
+    /// admin address and the new cap, so indexers and front-ends can pick the
+    /// limit up without polling storage.
+    pub fn set_max_outcomes_per_market(
+        env: Env,
+        admin: Address,
+        max_outcomes: u32,
+    ) -> Result<(), Error> {
+        Self::require_primary_admin(&env, &admin)?;
+        markets::OutcomeCapManager::set_max_outcomes(&env, &admin, max_outcomes)
+    }
+
+    /// Returns the maximum number of outcomes a newly created market may declare.
+    ///
+    /// Defaults to [`markets::DEFAULT_MAX_OUTCOMES_PER_MARKET`] (`10`) until an
+    /// admin calls [`Self::set_max_outcomes_per_market`].
+    pub fn get_max_outcomes_per_market(env: Env) -> u32 {
+        markets::OutcomeCapManager::get_max_outcomes(&env)
+    }
+
     pub fn set_max_participants(
         env: Env,
         admin: Address,
@@ -3975,6 +4028,8 @@ impl PredictifyHybrid {
     /// - No bets can have been placed yet
     /// - Market must not be resolved
     /// - New outcomes must have at least 2 options
+    /// - New outcomes must not exceed the admin-configured cap
+    ///   ([`Self::get_max_outcomes_per_market`])
     /// - All outcome strings must be non-empty
     ///
     /// # Security
@@ -3994,9 +4049,12 @@ impl PredictifyHybrid {
     ) -> Result<(), Error> {
         Self::require_primary_admin(&env, &admin)?;
 
-        // Validate new outcomes
-        if new_outcomes.len() < 2 {
-            panic_with_error!(env, Error::InvalidOutcomes);
+        // Validate new outcomes against the same cap used at creation: this
+        // path rewrites `market.outcomes`, so skipping the cap here would let
+        // an admin grow a market past the bound that keeps resolution within
+        // the instruction budget.
+        if let Err(e) = crate::markets::OutcomeCapManager::validate_outcome_count(&env, &new_outcomes) {
+            panic_with_error!(env, e);
         }
 
         // Check all outcomes are non-empty
