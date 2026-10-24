@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    contract, contractimpl, testutils::Address as _, Address, Env, String,
+    contract, contractimpl, testutils::{Address as _, MockAuth, MockAuthInvoke}, Address, Env,
+    IntoVal, String,
 };
 use oracles::{OraclesContract, OraclesContractClient, OraclePriceData};
 
@@ -119,6 +120,46 @@ fn test_remove_oracle_fails_without_auth() {
     let oracle = Address::generate(&unauth_env);
 
     client.remove_oracle(&admin, &oracle);
+}
+
+#[test]
+#[should_panic]
+fn test_add_oracle_rejects_non_admin_signer() {
+    let setup = setup_test_env();
+    let outsider = Address::generate(&setup.env);
+    setup.env.mock_all_auths();
+    setup.client.add_oracle(&setup.admin, &setup.oracle);
+
+    setup.env.mock_auths(&[MockAuth {
+        address: &setup.admin,
+        invoke: &MockAuthInvoke {
+            contract: &setup.contract_id,
+            fn_name: "add_oracle",
+            args: (&setup.admin, &setup.oracle).into_val(&setup.env),
+            sub_invokes: &[],
+        },
+    }]);
+    setup.client.add_oracle(&outsider, &setup.oracle);
+}
+
+#[test]
+#[should_panic]
+fn test_remove_oracle_rejects_non_admin_signer() {
+    let setup = setup_test_env();
+    let outsider = Address::generate(&setup.env);
+    setup.env.mock_all_auths();
+    setup.client.add_oracle(&setup.admin, &setup.oracle);
+
+    setup.env.mock_auths(&[MockAuth {
+        address: &setup.admin,
+        invoke: &MockAuthInvoke {
+            contract: &setup.contract_id,
+            fn_name: "remove_oracle",
+            args: (&setup.admin, &setup.oracle).into_val(&setup.env),
+            sub_invokes: &[],
+        },
+    }]);
+    setup.client.remove_oracle(&outsider, &setup.oracle);
 }
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,10 @@ pub use errors::ContractError;
 /// Type alias used by generated client code and test harnesses.
 pub type Error = ContractError;
 
+/// Maximum distance between a supplied metric timestamp and ledger time.
+/// Adjust this deployment constant when the expected ingestion delay changes.
+const MAX_TIMESTAMP_DRIFT_SECONDS: u64 = 86_400;
+
 /// Persistent-storage keys used by the Analytics contract.
 #[contracttype]
 #[derive(Clone)]
@@ -255,6 +259,11 @@ impl Analytics {
 
         // Require caller authentication
         caller.require_auth();
+
+        let current_timestamp = env.ledger().timestamp();
+        if timestamp.abs_diff(current_timestamp) > MAX_TIMESTAMP_DRIFT_SECONDS {
+            return Err(ContractError::ValueOutOfRange);
+        }
 
         // Check for duplicate entry (same metric_name, timestamp)
         let key = DataKey::Metric(metric_name.clone(), timestamp);

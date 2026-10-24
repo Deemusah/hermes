@@ -336,6 +336,8 @@ fn test_user_bet_enumeration_reflects_market_cancellation() {
 fn test_default_winner_takes_all_payout() {
     let te = setup_test_env();
     let m1 = create_standard_market(&te, 2);
+    let token_client = soroban_sdk::token::Client::new(&te.env, &te.token_address);
+    let starting_balance = token_client.balance(&te.bettor1);
 
     // Bettor1 stakes 200 on Outcome 0 (Yes)
     // Bettor2 stakes 600 on Outcome 1 (No)
@@ -351,6 +353,7 @@ fn test_default_winner_takes_all_payout() {
 
     let payout = te.client.claim_winnings(&te.bettor1, &m1);
     assert_eq!(payout, 800);
+    assert_eq!(token_client.balance(&te.bettor1), starting_balance - 200 + payout);
 
     // Losing bettor gets error
     let lose_res = te.client.try_claim_winnings(&te.bettor2, &m1);
