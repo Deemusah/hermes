@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial CHANGELOG.md following Keep a Changelog format
 - CI check requiring CHANGELOG.md updates for PRs modifying contract code
-- **predictify-hybrid**: the cap on outcomes per market is now a runtime parameter instead of a hard-coded `10`. Admins call `set_max_outcomes_per_market` (range 2-20, default 10) and read it back with `get_max_outcomes_per_market`; the cap is enforced by `create_market` and by `update_event_outcomes`, which previously had no upper bound at all (closes #9)
+- **predictify-hybrid**: `update_market_question` entrypoint lets a market creator fix a typo in the question before any stake is committed. Updates are rejected once `total_staked != 0`, after `end_time`, outside the `Active` state, or for callers other than the market creator; the stored metadata commitment is refreshed so cached metadata fails verification (closes #4)
 
 ### Changed
 

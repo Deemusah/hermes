@@ -3769,6 +3769,64 @@ impl PredictifyHybrid {
         Ok(())
     }
 
+    /// Updates a market's question text before any stake is committed.
+    ///
+    /// Market creators can correct a typo in the published question while the
+    /// market is still `Active`, before its `end_time`, and while
+    /// `total_staked == 0`. Once the first stake (vote or bet) is recorded the
+    /// question is frozen: nobody can have acted on text that later changes,
+    /// and the resolution criteria stay unambiguous.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `creator` - The market creator (`market.admin`); must authorize the call
+    /// * `market_id` - Unique identifier of the market to update
+    /// * `new_question` - The replacement question text (1-500 bytes)
+    ///
+    /// # Errors
+    ///
+    /// - `Error::MarketNotFound` — no market exists for `market_id`
+    /// - `Error::Unauthorized` — `creator` is not the market creator
+    /// - `Error::InvalidQuestion` — the new question is empty
+    /// - `Error::QuestionTooLong` — the new question exceeds 500 bytes
+    /// - `Error::InvalidState` — market is not `Active`, or a stake/vote exists
+    /// - `Error::MarketClosed` — the market's `end_time` has passed
+    ///
+    /// # Effects
+    ///
+    /// The stored `metadata_commitment` is recomputed so clients holding the
+    /// previous commitment detect the change through `verify_market_metadata`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let creator = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    /// match PredictifyHybrid::update_market_question(
+    ///     env.clone(),
+    ///     creator,
+    ///     market_id,
+    ///     String::from_str(&env, "Will Bitcoin close above $120,000 on 2026-12-31?"),
+    /// ) {
+    ///     Ok(()) => println!("question updated"),
+    ///     Err(e) => println!("update rejected: {:?}", e),
+    /// }
+    /// ```
+    pub fn update_market_question(
+        env: Env,
+        creator: Address,
+        market_id: Symbol,
+        new_question: String,
+    ) -> Result<(), Error> {
+        creator.require_auth();
+        markets::MarketStateManager::update_question(&env, &market_id, &creator, new_question)
+    }
+
+
     /// Updates the description/question of a market (admin only, before betting starts).
     ///
     /// This function allows contract administrators to update the market question

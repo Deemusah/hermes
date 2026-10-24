@@ -12,6 +12,12 @@ use crate::storage::{
 use crate::types::*;
 // Oracle imports removed - not currently used
 
+/// Maximum length, in bytes, of a market question.
+///
+/// Mirrors the documented contract API (1-500 characters) and keeps the stored
+/// question bounded, so metadata commitments remain cheap to compute and verify.
+pub const MAX_QUESTION_LENGTH: u32 = 500;
+
 /// Market management system for Predictify Hybrid contract
 ///
 /// This module provides a comprehensive market management system with:
@@ -1194,6 +1200,84 @@ impl MarketStateManager {
             &new_description,
             &market.admin,
         );
+        Ok(())
+    }
+
+    /// Updates a market's question text before any stake has been committed.
+    ///
+    /// Market creators regularly publish a market with a typo. Because the
+    /// question is part of the market's public metadata commitment it must be
+    /// frozen as soon as real value is at risk: allowing edits after the first
+    /// stake would let a creator move the goalposts after observing bets.
+    ///
+    /// # Rules
+    ///
+    /// - `creator` must be the market creator (`market.admin`).
+    /// - The market must still be `Active` and its `end_time` must not have passed.
+    /// - `total_staked` must be exactly zero, and neither `votes` nor `stakes`
+    ///   may contain entries.
+    /// - The new question must be non-empty and at most [`MAX_QUESTION_LENGTH`]
+    ///   bytes long.
+    ///
+    /// # Effects
+    ///
+    /// - Rewrites `question` and refreshes `metadata_commitment`, so clients
+    ///   holding the previous commitment fail `verify_market_metadata` and
+    ///   re-read the market.
+    /// - Emits [`crate::events::MarketDescriptionUpdatedEvent`] carrying the old
+    ///   and new question text (the question is the market's description).
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::MarketNotFound`] — no market exists for `market_id`
+    /// - [`Error::Unauthorized`] — `creator` is not the market creator
+    /// - [`Error::InvalidQuestion`] — the new question is empty
+    /// - [`Error::QuestionTooLong`] — the new question exceeds [`MAX_QUESTION_LENGTH`]
+    /// - [`Error::InvalidState`] — market is not `Active`, or a stake/vote exists
+    /// - [`Error::MarketClosed`] — `end_time` has already passed
+    pub fn update_question(
+        env: &Env,
+        market_id: &Symbol,
+        creator: &Address,
+        new_question: String,
+    ) -> Result<(), Error> {
+        if new_question.is_empty() {
+            return Err(Error::InvalidQuestion);
+        }
+        if new_question.len() > MAX_QUESTION_LENGTH {
+            return Err(Error::QuestionTooLong);
+        }
+
+        let mut market = Self::get_market(env, market_id)?;
+
+        if market.admin != *creator {
+            return Err(Error::Unauthorized);
+        }
+        if market.state != MarketState::Active {
+            return Err(Error::InvalidState);
+        }
+        if env.ledger().timestamp() >= market.end_time {
+            return Err(Error::MarketClosed);
+        }
+        // Stake gate: once anyone has committed funds the question is frozen,
+        // so no participant can have acted on text that later changes.
+        if market.total_staked != 0 || !market.votes.is_empty() || !market.stakes.is_empty() {
+            return Err(Error::InvalidState);
+        }
+
+        let old_question = market.question.clone();
+        market.question = new_question.clone();
+        market.refresh_metadata_commitment(env);
+        Self::update_market(env, market_id, &market);
+
+        EventEmitter::emit_market_description_updated(
+            env,
+            market_id,
+            &old_question,
+            &new_question,
+            creator,
+        );
+
         Ok(())
     }
 
